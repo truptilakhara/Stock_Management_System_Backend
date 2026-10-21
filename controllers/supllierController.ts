@@ -3,7 +3,6 @@ import Supplier from "../models/suppliers"
 export const createSupplier = async (req: Request, res: Response) => {
     try {
         const { name, phone, email, address, companyName } = req.body
-        console.log(name, phone, email, address, companyName, req.body, "hiii")
         if (!name || !phone || !email || !address || !companyName) {
             return res.status(400).json({ message: "Name, phone ,email address or company name is required." })
         }

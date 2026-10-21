@@ -73,3 +73,80 @@ export const stockOut = async (req: Request, res: Response) => {
         });
     }
 };
+export const getStockOutHistory = async (
+    req: Request,
+    res: Response
+) => {
+    try {
+        const filter = { type: "stock-out" as const };
+
+        // Fetch the latest 50 records for the table
+        const transactions = await Transaction.find(filter)
+            .populate("product")
+            .populate("supplier")
+            .sort({ createdAt: -1 })
+            .limit(50);
+
+        // Count ALL stock-out records, not just the latest 50
+        const totalRecords = await Transaction.countDocuments(filter);
+
+        // Calculate total quantity removed across ALL records
+        const quantitySummary = await Transaction.aggregate([
+            { $match: { type: "stock-out" } },
+            {
+                $group: {
+                    _id: null,
+                    totalQuantity: { $sum: "$quantity" },
+                },
+            },
+        ]);
+
+        // Calculate quantity removed today (India timezone)
+        const now = new Date();
+        const indiaDate = new Date(
+            now.toLocaleString("en-US", { timeZone: "Asia/Kolkata" })
+        );
+
+        const startOfDay = new Date(indiaDate);
+        startOfDay.setHours(0, 0, 0, 0);
+
+        const endOfDay = new Date(startOfDay);
+        endOfDay.setDate(endOfDay.getDate() + 1);
+
+        // Convert India-local day boundaries to UTC
+        const utcOffset = 330 * 60 * 1000;
+        const startUtc = new Date(startOfDay.getTime() - utcOffset);
+        const endUtc = new Date(endOfDay.getTime() - utcOffset);
+
+        const todaySummary = await Transaction.aggregate([
+            {
+                $match: {
+                    type: "stock-out",
+                    createdAt: { $gte: startUtc, $lt: endUtc },
+                },
+            },
+            {
+                $group: {
+                    _id: null,
+                    todayQuantity: { $sum: "$quantity" },
+                },
+            },
+        ]);
+
+        return res.status(200).json({
+            message: "Stock-out history fetched successfully.",
+            data: transactions,
+            summary: {
+                totalRecords,
+                totalQuantity: quantitySummary[0]?.totalQuantity ?? 0,
+                todayQuantity: todaySummary[0]?.todayQuantity ?? 0,
+            },
+        });
+    } catch (error) {
+        console.error("Failed to fetch stock-out history:", error);
+
+        return res.status(500).json({
+            message: "Failed to fetch stock-out history.",
+        });
+    }
+};

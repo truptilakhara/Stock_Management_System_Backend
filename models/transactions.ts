@@ -8,6 +8,7 @@ export interface ITransaction extends Document {
     reference?: string;
     createdBy: Types.ObjectId;
     createdAt: Date;
+    supplier?: Types.ObjectId
 }
 
 const transactionSchema = new Schema<ITransaction>(
@@ -17,7 +18,11 @@ const transactionSchema = new Schema<ITransaction>(
             ref: "Product",
             required: true,
         },
-
+        supplier: {
+            type: Schema.Types.ObjectId,
+            ref: "Supplier",
+            required: false,
+        },
         type: {
             type: String,
             enum: ["stock-in", "stock-out"],

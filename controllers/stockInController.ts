@@ -49,3 +49,24 @@ export const stockIn = async (req: Request, res: Response) => {
         return res.status(500).json({ message: "Internal server error." })
     }
 }
+export const getStockInHistory = async (
+    req: Request,
+    res: Response
+) => {
+    try {
+        const transactions = await Transaction.find({
+            type: "stock-in",
+        })
+            .populate("product").populate("supplier")
+            .sort({ createdAt: -1 })
+            .limit(50);
+        return res.status(200).json({
+            message: "Stock-in history fetched successfully.",
+            data: transactions,
+        });
+    } catch (error) {
+        return res.status(500).json({
+            message: "Failed to fetch stock-in history.",
+        });
+    }
+};
