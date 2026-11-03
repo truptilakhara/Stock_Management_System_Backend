@@ -5,7 +5,8 @@ export interface IUser extends Document {
     email: string;
     password?: string;
     role: "owner" | "staff";
-    googleId?: string
+    googleId?: string;
+    avatar?: string;
 }
 
 const userSchema = new Schema<IUser>(
@@ -39,6 +40,11 @@ const userSchema = new Schema<IUser>(
             type: String,
             unique: true,
             sparse: true
+        },
+        // Small profile picture stored as a data URL (or a Google picture URL).
+        avatar: {
+            type: String,
+            required: false,
         }
     },
     {

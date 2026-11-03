@@ -1,15 +1,28 @@
 import { Request, Response } from "express";
 import Product from "../models/products"
 import Transaction from "../models/transactions"
+import { present } from "./productController"
+import Sale from "../models/sales"
+import { normalizeSerials } from "../utils/serials"
 
 export const stockIn = async (req: Request, res: Response) => {
     try {
-        const { product, quantity, reason, reference } = req.body
-        if (!product || !quantity) {
+        const { product, reason, reference } = req.body
+        const quantity = Number(req.body.quantity)
+        if (!product || !req.body.quantity) {
             return res.status(400).json({ message: "Product and quantity are required." })
         }
-        if (quantity < 1) {
-            return res.status(400).json({ message: "Quantity must be at least 1" })
+        if (!Number.isInteger(quantity) || quantity < 1) {
+            return res.status(400).json({ message: "Quantity must be a whole number of at least 1." })
+        }
+        const { serials, error: serialError } = normalizeSerials(req.body.serialNumbers)
+        if (serialError) {
+            return res.status(400).json({ message: serialError })
+        }
+        if (serials.length > 0 && serials.length !== quantity) {
+            return res.status(400).json({
+                message: `Enter ${quantity} serial number${quantity === 1 ? "" : "s"} or leave them all blank (you entered ${serials.length}).`
+            })
         }
         const existingProduct = await Product.findById(product)
         if (!existingProduct) {
@@ -23,24 +36,41 @@ export const stockIn = async (req: Request, res: Response) => {
                 message: "User not authenticated."
             });
         }
+        if (serials.length > 0) {
+            const inStock = await Product.findOne({ serialNumbers: { $in: serials } }).select("productName serialNumbers")
+            if (inStock) {
+                const clash = serials.find((s) => inStock.serialNumbers.includes(s))
+                return res.status(409).json({ message: `Serial number ${clash} is already in stock (${inStock.productName}).` })
+            }
+            const sold = await Sale.findOne({ status: "completed", "items.serialNumbers": { $in: serials } }).select("invoiceNumber items.serialNumbers")
+            if (sold) {
+                const clash = serials.find((s) => sold.items.some((i) => i.serialNumbers?.includes(s)))
+                return res.status(409).json({ message: `Serial number ${clash} was already sold on ${sold.invoiceNumber}.` })
+            }
+        }
+        // Atomic increment so concurrent updates can't overwrite each other.
+        const update: Record<string, unknown> = { $inc: { quantity } }
+        if (serials.length > 0) update.$addToSet = { serialNumbers: { $each: serials } }
+        await Product.updateOne({ _id: existingProduct._id }, update);
         existingProduct.quantity += quantity;
-
-        await existingProduct.save();
+        if (serials.length > 0) existingProduct.serialNumbers = [...existingProduct.serialNumbers, ...serials];
 
         // Create transaction
         const transaction = await Transaction.create({
             product: existingProduct._id,
             type: "stock-in",
+            supplier: existingProduct.supplier,
             quantity,
             reason,
             reference,
+            serialNumbers: serials,
             createdBy: userId
         });
 
         return res.status(201).json({
             message: "Stock added successfully.",
             data: {
-                product: existingProduct,
+                product: present(existingProduct, req),
                 transaction
             }
         });
@@ -57,7 +87,7 @@ export const getStockInHistory = async (
         const transactions = await Transaction.find({
             type: "stock-in",
         })
-            .populate("product").populate("supplier")
+            .populate("product", "-purchasePrice -serialNumbers").populate("supplier")
             .sort({ createdAt: -1 })
             .limit(50);
         return res.status(200).json({

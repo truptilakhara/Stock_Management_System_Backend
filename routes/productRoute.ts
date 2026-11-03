@@ -8,18 +8,18 @@ import {
     deleteProductById
 } from "../controllers/productController";
 
-import { authenticate } from "../middleware/authMiddleware";
+import { authenticate, authorize } from "../middleware/authMiddleware";
 
 const router = express.Router();
 
-router.post("/createProduct", authenticate, createProduct);
+router.post("/createProduct", authenticate, authorize("owner"), createProduct);
 
 router.get("/getAllProducts", authenticate, getProducts);
 
 router.get("/:id", authenticate, getProductById);
 
-router.put("/:id", authenticate, updateProductById);
+router.put("/:id", authenticate, authorize("owner"), updateProductById);
 
-router.delete("/:id", authenticate, deleteProductById);
+router.delete("/:id", authenticate, authorize("owner"), deleteProductById);
 
 export default router;

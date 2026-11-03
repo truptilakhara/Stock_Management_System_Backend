@@ -1,12 +1,18 @@
 import { Request, Response } from "express";
 import Product from "../models/products";
 
+// Staff must never see what a product cost; only owners get purchasePrice.
+export function present(product: any, req: Request) {
+    const obj = typeof product.toObject === "function" ? product.toObject() : { ...product };
+    if ((req as any).user?.role !== "owner") delete obj.purchasePrice;
+    return obj;
+}
+
 // CREATE PRODUCT
 export const createProduct = async (req: Request, res: Response) => {
     try {
         const {
             productName,
-            sku,
             quantity,
             minimumStock,
             purchasePrice,
@@ -20,30 +26,19 @@ export const createProduct = async (req: Request, res: Response) => {
         // Check required fields
         if (
             !productName ||
-            !sku ||
             purchasePrice === undefined ||
             sellingPrice === undefined ||
             !category ||
             !supplier
         ) {
             return res.status(400).json({
-                message: "Product name, SKU, purchase price, selling price, category and supplier are required."
-            });
-        }
-
-        // Check duplicate SKU
-        const existingProduct = await Product.findOne({ sku });
-
-        if (existingProduct) {
-            return res.status(409).json({
-                message: "Product with this SKU already exists."
+                message: "Product name, purchase price, selling price, category and supplier are required."
             });
         }
 
         // Create product
         const product = await Product.create({
             productName,
-            sku,
             quantity,
             minimumStock,
             purchasePrice,
@@ -56,7 +51,7 @@ export const createProduct = async (req: Request, res: Response) => {
 
         return res.status(201).json({
             message: "Product created successfully.",
-            data: product
+            data: present(product, req)
         });
 
     } catch (error) {
@@ -76,7 +71,7 @@ export const getProducts = async (req: Request, res: Response) => {
 
         return res.status(200).json({
             message: "Fetched successfully.",
-            data: allProducts
+            data: allProducts.map((p) => present(p, req))
         });
 
     } catch (error) {
@@ -104,7 +99,7 @@ export const getProductById = async (req: Request, res: Response) => {
 
         return res.status(200).json({
             message: "Fetched successfully.",
-            data: product
+            data: present(product, req)
         });
 
     } catch (error) {
@@ -119,7 +114,8 @@ export const getProductById = async (req: Request, res: Response) => {
 export const updateProductById = async (req: Request, res: Response) => {
     try {
         const { id } = req.params;
-        const data = req.body;
+        // Serial numbers are managed through Stock In / Stock Out / Billing only.
+        const { serialNumbers: _ignored, sku: _sku, ...data } = req.body;
 
         const updatedProduct = await Product.findByIdAndUpdate(
             id,
@@ -140,7 +136,7 @@ export const updateProductById = async (req: Request, res: Response) => {
 
         return res.status(200).json({
             message: "Product updated successfully.",
-            data: updatedProduct
+            data: present(updatedProduct, req)
         });
 
     } catch (error) {

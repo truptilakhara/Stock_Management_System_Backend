@@ -33,7 +33,7 @@ export const getDashboard = async (req: Request, res: Response) => {
 
         // Recent transactions
         const recentTransactions = await Transaction.find()
-            .populate("product")
+            .populate("product", "-purchasePrice -serialNumbers")
             .populate("createdBy", "-password")
             .sort({ createdAt: -1 })
             .limit(5);

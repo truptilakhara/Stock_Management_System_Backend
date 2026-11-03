@@ -1,86 +1,52 @@
 import { Request, Response } from "express";
 import Transaction from "../models/transactions";
-import Product from "../models/products";
 
+// The transaction ledger is written only by Stock In, Stock Out and Billing,
+// which also keep product stock in sync. Records are read-only here.
 
-// CREATE TRANSACTION
-export const createTransaction = async (req: Request, res: Response) => {
-    try {
-        const {
-            product,
-            type,
-            quantity,
-            reason,
-            reference
-        } = req.body;
-
-        if (!product || !type || !quantity) {
-            return res.status(400).json({
-                message: "Product, type and quantity are required."
-            });
-        }
-
-        if (!["stock-in", "stock-out"].includes(type)) {
-            return res.status(400).json({
-                message: "Transaction type must be stock-in or stock-out."
-            });
-        }
-
-        if (quantity < 1) {
-            return res.status(400).json({
-                message: "Quantity must be at least 1."
-            });
-        }
-
-        const existingProduct = await Product.findById(product);
-
-        if (!existingProduct) {
-            return res.status(404).json({
-                message: "Product not found."
-            });
-        }
-
-        const userId = req.user?.id;
-
-        if (!userId) {
-            return res.status(401).json({
-                message: "User not authenticated."
-            });
-        }
-
-        const transaction = await Transaction.create({
-            product,
-            type,
-            quantity,
-            reason,
-            reference,
-            createdBy: userId
-        });
-
-        return res.status(201).json({
-            message: "Transaction created successfully.",
-            data: transaction
-        });
-
-    } catch (error) {
-        return res.status(500).json({
-            message: "Internal server error."
-        });
-    }
-};
-
-
-// GET ALL TRANSACTIONS
+// GET TRANSACTIONS (optional ?type=stock-in|stock-out&from=YYYY-MM-DD&to=YYYY-MM-DD&limit=)
 export const getTransactions = async (req: Request, res: Response) => {
     try {
-        const transactions = await Transaction.find()
-            .populate("product")
-            .populate("createdBy", "-password")
-            .sort({ createdAt: -1 });
+        const OFFSET_MS = 330 * 60 * 1000; // India time
+        const filter: Record<string, unknown> = {};
+
+        const { type, from, to } = req.query;
+
+        if (type === "stock-in" || type === "stock-out") {
+            filter.type = type;
+        }
+
+        const dayStart = (value: unknown) => {
+            if (typeof value !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(value)) return null;
+            const [y, m, d] = value.split("-").map(Number);
+            return new Date(Date.UTC(y, m - 1, d) - OFFSET_MS);
+        };
+
+        const start = dayStart(from);
+        const endDay = dayStart(to);
+        if (start || endDay) {
+            const range: Record<string, Date> = {};
+            if (start) range.$gte = start;
+            if (endDay) range.$lt = new Date(endDay.getTime() + 24 * 60 * 60 * 1000);
+            filter.createdAt = range;
+        }
+
+        const limit = Math.min(Math.max(Number(req.query.limit) || 500, 1), 2000);
+
+        const [transactions, total] = await Promise.all([
+            Transaction.find(filter)
+                .populate("product", "-purchasePrice -serialNumbers")
+                .populate("supplier")
+                .populate("createdBy", "-password")
+                .sort({ createdAt: -1 })
+                .limit(limit),
+            Transaction.countDocuments(filter),
+        ]);
 
         return res.status(200).json({
             message: "Transactions fetched successfully.",
-            data: transactions
+            data: transactions,
+            total
         });
 
     } catch (error) {
@@ -100,7 +66,8 @@ export const getTransactionById = async (
         const { id } = req.params;
 
         const transaction = await Transaction.findById(id)
-            .populate("product")
+            .populate("product", "-purchasePrice -serialNumbers")
+            .populate("supplier")
             .populate("createdBy", "-password");
 
         if (!transaction) {
@@ -112,35 +79,6 @@ export const getTransactionById = async (
         return res.status(200).json({
             message: "Transaction fetched successfully.",
             data: transaction
-        });
-
-    } catch (error) {
-        return res.status(500).json({
-            message: "Internal server error."
-        });
-    }
-};
-
-
-// DELETE TRANSACTION
-export const deleteTransactionById = async (
-    req: Request,
-    res: Response
-) => {
-    try {
-        const { id } = req.params;
-
-        const deletedTransaction =
-            await Transaction.findByIdAndDelete(id);
-
-        if (!deletedTransaction) {
-            return res.status(404).json({
-                message: "Transaction not found."
-            });
-        }
-
-        return res.status(200).json({
-            message: "Transaction deleted successfully."
         });
 
     } catch (error) {

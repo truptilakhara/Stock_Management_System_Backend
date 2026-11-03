@@ -2,7 +2,7 @@ import { Document, Schema, model, Types } from "mongoose";
 
 export interface IProduct extends Document {
     productName: string;
-    sku: string;
+    serialNumbers: string[];
     quantity: number;
     minimumStock: number;
     purchasePrice: number;
@@ -21,11 +21,11 @@ const productSchema = new Schema<IProduct>(
             trim: true,
         },
 
-        sku: {
-            type: String,
-            required: true,
-            unique: true,
-            trim: true,
+        // One entry per unit in stock. Shown only in Billing / Stock In / Stock Out.
+        serialNumbers: {
+            type: [String],
+            default: [],
+            index: true,
         },
 
         quantity: {

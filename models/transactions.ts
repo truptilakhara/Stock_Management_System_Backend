@@ -8,7 +8,8 @@ export interface ITransaction extends Document {
     reference?: string;
     createdBy: Types.ObjectId;
     createdAt: Date;
-    supplier?: Types.ObjectId
+    supplier?: Types.ObjectId;
+    serialNumbers?: string[];
 }
 
 const transactionSchema = new Schema<ITransaction>(
@@ -43,6 +44,11 @@ const transactionSchema = new Schema<ITransaction>(
         reference: {
             type: String,
             trim: true,
+        },
+
+        serialNumbers: {
+            type: [String],
+            default: [],
         },
 
         createdBy: {

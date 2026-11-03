@@ -3,20 +3,24 @@ import express from "express";
 import {
     getUsers,
     getUserById,
+    createUser,
     updateUserById,
     deleteUserById
 } from "../controllers/userController";
 
-import { authenticate } from "../middleware/authMiddleware";
+import { authenticate, authorize } from "../middleware/authMiddleware";
 
 const router = express.Router();
 
-router.get("/", authenticate, getUsers);
+// Managing users is an owner-only job.
+router.get("/", authenticate, authorize("owner"), getUsers);
 
-router.get("/:id", authenticate, getUserById);
+router.post("/", authenticate, authorize("owner"), createUser);
 
-router.put("/:id", authenticate, updateUserById);
+router.get("/:id", authenticate, authorize("owner"), getUserById);
 
-router.delete("/:id", authenticate, deleteUserById);
+router.put("/:id", authenticate, authorize("owner"), updateUserById);
+
+router.delete("/:id", authenticate, authorize("owner"), deleteUserById);
 
 export default router;

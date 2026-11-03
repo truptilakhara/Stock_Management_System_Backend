@@ -1,39 +1,32 @@
 import { Request, Response } from "express";
 import Product from "../models/products";
 import Transaction from "../models/transactions";
+import { deductStock } from "../utils/stock";
+import { normalizeSerials } from "../utils/serials";
+import { present } from "./productController";
 
 export const stockOut = async (req: Request, res: Response) => {
     try {
-        const { product, quantity, reason, reference } = req.body;
+        const { product, reason, reference } = req.body;
+        const quantity = Number(req.body.quantity);
 
         // Validate required fields
-        if (!product || !quantity) {
+        if (!product || !req.body.quantity) {
             return res.status(400).json({
                 message: "Product and quantity are required."
             });
         }
 
         // Validate quantity
-        if (quantity < 1) {
+        if (!Number.isInteger(quantity) || quantity < 1) {
             return res.status(400).json({
-                message: "Quantity must be at least 1."
+                message: "Quantity must be a whole number of at least 1."
             });
         }
 
-        // Find product
-        const existingProduct = await Product.findById(product);
-
-        if (!existingProduct) {
-            return res.status(404).json({
-                message: "Product not found."
-            });
-        }
-
-        // Check available stock
-        if (existingProduct.quantity < quantity) {
-            return res.status(400).json({
-                message: "Insufficient stock available."
-            });
+        const { serials, error: serialError } = normalizeSerials(req.body.serialNumbers);
+        if (serialError) {
+            return res.status(400).json({ message: serialError });
         }
 
         // Get logged-in user
@@ -45,9 +38,13 @@ export const stockOut = async (req: Request, res: Response) => {
             });
         }
 
-        // Decrease product quantity
-        existingProduct.quantity -= quantity;
-        await existingProduct.save();
+        // Decrease stock atomically, so two sales can't both take the last units.
+        const result = await deductStock(product, quantity, serials);
+
+        if (!result.ok) {
+            return res.status(result.status).json({ message: result.message });
+        }
+        const existingProduct = (await Product.findById(product))!;
 
         // Create transaction record
         const transaction = await Transaction.create({
@@ -56,13 +53,14 @@ export const stockOut = async (req: Request, res: Response) => {
             quantity,
             reason,
             reference,
+            serialNumbers: serials,
             createdBy: userId
         });
 
         return res.status(201).json({
             message: "Stock removed successfully.",
             data: {
-                product: existingProduct,
+                product: present(existingProduct, req),
                 transaction
             }
         });
@@ -82,7 +80,7 @@ export const getStockOutHistory = async (
 
         // Fetch the latest 50 records for the table
         const transactions = await Transaction.find(filter)
-            .populate("product")
+            .populate("product", "-purchasePrice -serialNumbers")
             .populate("supplier")
             .sort({ createdAt: -1 })
             .limit(50);
